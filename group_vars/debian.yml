@@ -1,0 +1,2 @@
+apt_cacher_host: "http://192.168.213.86:3142"
+apt_proxy_enabled: true

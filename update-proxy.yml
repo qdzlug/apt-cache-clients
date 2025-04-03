@@ -1,0 +1,61 @@
+---
+- name: Manage apt proxy for Ubuntu and Debian systems
+  hosts: ubuntu,debian
+  become: true
+  gather_facts: true
+  vars:
+    apt_proxy_config_path: "/etc/apt/apt.conf.d/01proxy"
+    apt_facts_path: "/etc/ansible/facts.d/apt_proxy.fact"
+
+  handlers:
+    - name: Log apt proxy set
+      command: logger -t apt-proxy "APT proxy ENABLED on {{ inventory_hostname }} using {{ apt_cacher_host }}"
+      changed_when: false
+
+    - name: Log apt proxy removed
+      command: logger -t apt-proxy "APT proxy DISABLED on {{ inventory_hostname }}"
+      changed_when: false
+
+  tasks:
+    - name: Ensure custom facts directory exists
+      file:
+        path: /etc/ansible/facts.d
+        state: directory
+        mode: '0755'
+
+    - name: Set apt proxy configuration
+      copy:
+        dest: "{{ apt_proxy_config_path }}"
+        content: |
+          Acquire::http::Proxy "{{ apt_cacher_host }}";
+          Acquire::https::Proxy "{{ apt_cacher_host }}";
+        owner: root
+        group: root
+        mode: '0644'
+      when: apt_proxy_enabled | default(true) | bool
+      notify: Log apt proxy set
+      check_mode: no
+
+    - name: Remove apt proxy configuration
+      file:
+        path: "{{ apt_proxy_config_path }}"
+        state: absent
+      when: not apt_proxy_enabled | default(true) | bool
+      notify: Log apt proxy removed
+      check_mode: no
+
+    - name: Write APT proxy custom fact
+      copy:
+        dest: "{{ apt_facts_path }}"
+        content: |
+          {
+            "enabled": {{ apt_proxy_enabled | default(true) | bool | lower }},
+            "host": "{{ apt_cacher_host if apt_proxy_enabled | default(true) else 'none' }}"
+          }
+        mode: '0644'
+      when: not ansible_check_mode
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+      when: not ansible_check_mode

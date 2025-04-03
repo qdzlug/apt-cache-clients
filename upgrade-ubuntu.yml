@@ -1,0 +1,30 @@
+---
+- name: Upgrade Ubuntu systems to new release
+  hosts: ubuntu
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Ensure update-manager-core is installed
+      apt:
+        name: update-manager-core
+        state: present
+
+    - name: Run full package upgrade
+      apt:
+        upgrade: dist
+        autoremove: yes
+        update_cache: yes
+
+    - name: Perform do-release-upgrade (noninteractive)
+      command: do-release-upgrade -f DistUpgradeViewNonInteractive
+      register: release_upgrade
+      ignore_errors: true
+
+    - name: Show upgrade result
+      debug:
+        var: release_upgrade.stdout_lines
+
+    - name: Reboot if upgrade triggered one
+      reboot:
+        reboot_timeout: 600

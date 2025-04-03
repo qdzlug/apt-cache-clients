@@ -1,0 +1,127 @@
+---
+- name: Upgrade Debian or Raspbian systems safely
+  hosts: debian
+  become: true
+  gather_facts: false
+  vars:
+    target_release: bookworm
+    backup_dir: "/root/raspbian-backup"
+
+  tasks:
+    - name: Get Pi hardware model
+      command: cat /proc/device-tree/model
+      register: pi_model
+      changed_when: false
+      ignore_errors: true
+
+    - name: Block upgrade if Pi is too old
+      fail:
+        msg: >
+          Device ({{ pi_model.stdout }}) may not support {{ target_release }} reliably.
+          Upgrade blocked.
+      when: >
+        pi_model.stdout is defined and (
+          'Raspberry Pi 2' in pi_model.stdout or
+          'Raspberry Pi Zero' in pi_model.stdout or
+          'Compute Module 1' in pi_model.stdout
+        )
+
+    - name: Create backup directory
+      file:
+        path: "{{ backup_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Backup apt sources.list
+      copy:
+        src: /etc/apt/sources.list
+        dest: "{{ backup_dir }}/sources.list.bak"
+        remote_src: true
+
+    - name: Backup raspi.list if it exists
+      copy:
+        src: /etc/apt/sources.list.d/raspi.list
+        dest: "{{ backup_dir }}/raspi.list.bak"
+        remote_src: true
+      ignore_errors: true
+
+    - name: Backup /boot
+      archive:
+        path: /boot
+        dest: "{{ backup_dir }}/boot.tar.gz"
+        format: gz
+
+    - name: Backup /etc
+      archive:
+        path: /etc
+        dest: "{{ backup_dir }}/etc.tar.gz"
+        format: gz
+
+    - name: Run apt update with timeout
+      shell: timeout 180s apt-get update -o Acquire::http::Timeout=60
+      register: apt_update_result
+      changed_when: false
+      failed_when: apt_update_result.rc != 0 and apt_update_result.rc != 124
+
+    - name: Run full dist upgrade
+      apt:
+        upgrade: dist
+        autoremove: yes
+
+    - name: Replace "buster/bullseye/bookworm" in /etc/apt/sources.list
+      replace:
+        path: /etc/apt/sources.list
+        regexp: '\b(buster|bullseye|bookworm)\b'
+        replace: "{{ target_release }}"
+
+    - name: Replace in /etc/apt/sources.list.d/raspi.list
+      replace:
+        path: /etc/apt/sources.list.d/raspi.list
+        regexp: '\b(buster|bullseye|bookworm)\b'
+        replace: "{{ target_release }}"
+      ignore_errors: true
+
+    - name: Update apt after changing release
+      shell: timeout 180s apt-get update -o Acquire::http::Timeout=60
+      register: post_change_update
+      changed_when: false
+      failed_when: post_change_update.rc != 0 and post_change_update.rc != 124
+
+    - name: Upgrade to new release
+      apt:
+        upgrade: dist
+        autoremove: yes
+
+    - name: Install lsb-release and python3
+      apt:
+        name:
+          - lsb-release
+          - python3
+        state: present
+
+    - name: Reboot system
+      reboot:
+        reboot_timeout: 600
+
+    - name: Check OS version
+      command: lsb_release -a
+      register: os_info
+      changed_when: false
+
+    - name: Check Python version
+      command: python3 --version
+      register: py_info
+      changed_when: false
+
+    - name: Check apt status
+      command: apt-get -s upgrade
+      register: apt_check
+      changed_when: false
+
+    - name: Show upgrade summary
+      debug:
+        msg: |
+          ✅ Upgrade complete on {{ inventory_hostname }}
+          OS: {{ os_info.stdout_lines | join('\n') }}
+          Python: {{ py_info.stdout }}
+          APT: {{ 'Up-to-date' if '0 upgraded' in apt_check.stdout else 'Updates remaining' }}
