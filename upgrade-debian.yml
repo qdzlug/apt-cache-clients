@@ -8,23 +8,6 @@
     backup_dir: "/root/raspbian-backup"
 
   tasks:
-    - name: Get Pi hardware model
-      command: cat /proc/device-tree/model
-      register: pi_model
-      changed_when: false
-      ignore_errors: true
-
-    - name: Block upgrade if Pi is too old
-      fail:
-        msg: >
-          Device ({{ pi_model.stdout }}) may not support {{ target_release }} reliably.
-          Upgrade blocked.
-      when: >
-        pi_model.stdout is defined and (
-          'Raspberry Pi 2' in pi_model.stdout or
-          'Raspberry Pi Zero' in pi_model.stdout or
-          'Compute Module 1' in pi_model.stdout
-        )
 
     - name: Create backup directory
       file:
