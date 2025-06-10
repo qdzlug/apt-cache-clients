@@ -1,5 +1,6 @@
 ---
 - name: Upgrade ubuntu and debian systems
+  hosts: ubuntu,debian,internet
   become: true
   gather_facts: true
 
